@@ -1,0 +1,37 @@
+<script type="module">
+import { PipecatClient } from "https://cdn.jsdelivr.net/npm/@pipecat-ai/client-js@1.13.1/dist/pipecat-client-js.min.js"
+import { SmallWebRTCTransport } from "https://cdn.jsdelivr.net/npm/@pipecat-ai/small-webrtc-transport@1.10.8/dist/small-webrtc-transport.min.js"
+
+const client = new PipecatClient({ transport: new SmallWebRTCTransport(), enableMic: true });
+
+async function start() {
+  // 1. Ask browser for location BEFORE connecting
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        window._lastCoords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+        console.log("Got location", window._lastCoords);
+      },
+      err => console.warn("Location denied", err),
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  }
+
+  await client.connect({ webrtcUrl: "/api/offer" });
+
+  // 2. Once connected, push location via custom message
+  client.onConnected(() => {
+    if (window._lastCoords) {
+      client.sendClientMessage("update_location", window._lastCoords);
+    }
+    // Keep updating every 30s
+    setInterval(() => {
+      navigator.geolocation.getCurrentPosition(p => {
+        client.sendClientMessage("update_location", { latitude: p.coords.latitude, longitude: p.coords.longitude });
+      });
+    }, 30000);
+  });
+}
+document.getElementById("start").onclick = start;
+</script>
+<button id="start">Start Voice Agent</button>
