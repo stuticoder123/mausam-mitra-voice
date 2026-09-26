@@ -1,0 +1,6 @@
+pipecat-ai[sarvam,groq,silero,webrtc]
+python-dotenv
+loguru
+aiohttp
+groq
+sarvamai
