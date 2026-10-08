@@ -1,37 +1,45 @@
+import os
 import aiohttp
 from typing import Dict, Any
+from dotenv import load_dotenv
 
-WMO_CODES = {
-    0: "clear sky", 1: "mainly clear", 2: "partly cloudy", 3: "overcast",
-    45: "foggy", 51: "light drizzle", 61: "slight rain", 63: "moderate rain",
-    65: "heavy rain", 80: "slight rain showers", 81: "moderate rain showers",
-    95: "thunderstorm",
-}
+load_dotenv()
+
+OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
 
 async def get_live_weather(lat: float, lon: float) -> Dict[str, Any]:
-    url = "https://api.open-meteo.com/v1/forecast"
+    if not OPENWEATHER_API_KEY:
+        raise ValueError("OPENWEATHER_API_KEY not found in.env")
+
+    url = "https://api.openweathermap.org/data/2.5/weather"
     params = {
-        "latitude": lat,
-        "longitude": lon,
-        "current": "temperature_2m,apparent_temperature,precipitation,rain,weather_code,wind_speed_10m,relative_humidity_2m",
-        "timezone": "auto"
+        "lat": lat,
+        "lon": lon,
+        "appid": OPENWEATHER_API_KEY,
+        "units": "metric" # for Celsius
     }
-    async with aiohttp.ClientSession() as s:
-        async with s.get(url, params=params, timeout=10) as r:
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, params=params, timeout=10) as r:
             r.raise_for_status()
             j = await r.json()
-            cur = j.get("current", {})
-            code = cur.get("weather_code")
+
+            main = j.get("main", {})
+            weather = j.get("weather", [{}])[0]
+            wind = j.get("wind", {})
+            rain = j.get("rain", {})
+
             return {
                 "latitude": lat,
                 "longitude": lon,
-                "temperature": cur.get("temperature_2m"),
-                "apparent_temperature": cur.get("apparent_temperature"),
-                "conditions": WMO_CODES.get(code, f"weather code {code}"),
-                "weather_code": code,
-                "precipitation": cur.get("precipitation"),
-                "rain": cur.get("rain"),
-                "wind_speed": cur.get("wind_speed_10m"),
-                "humidity": cur.get("relative_humidity_2m"),
-                "is_raining": (cur.get("rain", 0) or 0) > 0,
+                "temperature": main.get("temp"),
+                "apparent_temperature": main.get("feels_like"),
+                "conditions": weather.get("description", "unknown"),
+                "weather_code": weather.get("main"),
+                "humidity": main.get("humidity"),
+                "wind_speed": wind.get("speed"),
+                "precipitation": rain.get("1h", 0),
+                "is_raining": "rain" in j or rain.get("1h", 0) > 0,
+                "city": j.get("name"),
+                "source": "openweathermap"
             }
