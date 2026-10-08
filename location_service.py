@@ -1,8 +1,12 @@
 import asyncio
 import aiohttp
-from loguru import logger
-from typing import Optional, Dict, Any
 import os
+from typing import Dict, Any
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
+
+GEOAPIFY_KEY = os.getenv("GEOAPIFY_API_KEY")
 
 class LocationStore:
     _instance = None
@@ -12,51 +16,43 @@ class LocationStore:
             cls._instance._data = {}
             cls._instance._lock = asyncio.Lock()
         return cls._instance
-
     async def set_last(self, lat: float, lon: float):
         async with self._lock:
             self._data["__last__"] = {"latitude": lat, "longitude": lon}
-
     async def get_last(self):
         async with self._lock:
             return self._data.get("__last__")
 
-USER_AGENT = os.getenv("NOMINATIM_USER_AGENT", "stuti-voice-assistant/1.0")
-
 async def geocode_city(city: str) -> Dict[str, Any]:
-    url = "https://nominatim.openstreetmap.org/search"
-    params = {"q": city, "format": "json", "limit": 1, "addressdetails": 1}
-    headers = {"User-Agent": USER_AGENT}
+    url = f"https://api.geoapify.com/v1/geocode/search?text={city}&apiKey={GEOAPIFY_KEY}&limit=1"
     async with aiohttp.ClientSession() as s:
-        async with s.get(url, params=params, headers=headers, timeout=10) as r:
+        async with s.get(url, timeout=10) as r:
             r.raise_for_status()
             data = await r.json()
-            if not data:
+            if not data.get("features"):
                 raise ValueError(f"City not found: {city}")
-            item = data[0]
+            props = data["features"][0]["properties"]
             return {
-                "latitude": float(item["lat"]),
-                "longitude": float(item["lon"]),
-                "city": item.get("address", {}).get("city") or item.get("address", {}).get("town") or city,
-                "state": item.get("address", {}).get("state"),
-                "country": item.get("address", {}).get("country"),
-                "display_name": item.get("display_name")
+                "latitude": props["lat"],
+                "longitude": props["lon"],
+                "city": props.get("city") or city,
+                "state": props.get("state"),
+                "country": props.get("country"),
+                "display_name": props.get("formatted")
             }
 
 async def reverse_geocode(lat: float, lon: float) -> Dict[str, Any]:
-    url = "https://nominatim.openstreetmap.org/reverse"
-    params = {"lat": lat, "lon": lon, "format": "json", "addressdetails": 1, "zoom": 10}
-    headers = {"User-Agent": USER_AGENT}
+    url = f"https://api.geoapify.com/v1/geocode/reverse?lat={lat}&lon={lon}&apiKey={GEOAPIFY_KEY}"
     async with aiohttp.ClientSession() as s:
-        async with s.get(url, params=params, headers=headers, timeout=10) as r:
+        async with s.get(url, timeout=10) as r:
             r.raise_for_status()
-            item = await r.json()
-            addr = item.get("address", {})
+            data = await r.json()
+            props = data["features"][0]["properties"] if data.get("features") else {}
             return {
                 "latitude": lat,
                 "longitude": lon,
-                "city": addr.get("city") or addr.get("town") or addr.get("village") or addr.get("county"),
-                "state": addr.get("state"),
-                "country": addr.get("country"),
-                "display_name": item.get("display_name"),
+                "city": props.get("city") or props.get("county"),
+                "state": props.get("state"),
+                "country": props.get("country"),
+                "display_name": props.get("formatted")
             }
